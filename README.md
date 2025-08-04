@@ -416,7 +416,6 @@ If this project helped you, please consider:
 - ⭐ **Starring** the repository
 - 🐦 **Sharing** with your network
 - 🤝 **Contributing** improvements
-- 💬 **Joining** our community discussions
 
 ---
 
