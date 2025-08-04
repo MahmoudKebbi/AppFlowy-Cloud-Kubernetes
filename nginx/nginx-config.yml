@@ -1,0 +1,347 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+data:
+  nginx.conf: |
+        events {
+            worker_connections 1024;
+        }
+
+        http {
+            # Multiple DNS resolvers for better reliability
+            resolver 10.96.0.10 valid=10s ipv6=off;
+            
+            # Enable DNS caching
+            resolver_timeout 5s;
+
+            map $http_upgrade $connection_upgrade {
+                default upgrade;
+                '' close;
+            }
+
+            map $http_origin $cors_origin {
+                default $http_origin;
+            }
+
+            # Define upstreams with service discovery
+            upstream appflowy_cloud {
+                server appflowy-cloud.default.svc.cluster.local:8000;
+                keepalive 32;
+            }
+
+            upstream gotrue {
+                server gotrue.default.svc.cluster.local:9999;
+                keepalive 32;
+            }
+
+            upstream appflowy_web {
+                server appflowy-web.default.svc.cluster.local:8080;
+                keepalive 32;
+            }
+
+            upstream minio_console {
+                server minio.default.svc.cluster.local:9001;
+                keepalive 32;
+            }
+
+            upstream minio_api {
+                server minio.default.svc.cluster.local:9000;
+                keepalive 32;
+            }
+
+            upstream admin_frontend {
+                server admin-frontend.default.svc.cluster.local:3000;
+                keepalive 32;
+            }
+
+            upstream pgadmin {
+                server pgadmin.default.svc.cluster.local:80;
+                keepalive 32;
+            }
+
+            # Health check server
+            server {
+                listen 8080;
+                
+                location = /stub_status {
+                    stub_status;
+                }
+                
+                location = /health {
+                    access_log off;
+                    return 200 "healthy\n";
+                    add_header Content-Type text/plain;
+                }
+            }
+
+            server {
+                listen 80;
+                client_max_body_size 10M;
+                underscores_in_headers on;
+
+                # GoTrue authentication
+                location /gotrue/ {
+                    if ($request_method = 'OPTIONS') {
+                        add_header 'Access-Control-Allow-Origin' $cors_origin always;
+                        add_header 'Access-Control-Allow-Credentials' 'true' always;
+                        add_header 'Access-Control-Allow-Headers' '*' always;
+                        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, PATCH, OPTIONS' always;
+                        add_header 'Access-Control-Max-Age' 3600 always;
+                        add_header 'Content-Type' 'text/plain charset=UTF-8' always;
+                        add_header 'Content-Length' 0 always;
+                        return 204;
+                    }
+
+                    proxy_pass http://gotrue;
+                    rewrite ^/gotrue(/.*)$ $1 break;
+                    
+                    proxy_set_header Host $http_host;
+                    proxy_pass_request_headers on;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                }
+
+                # WebSocket connections
+                location /ws {
+                    proxy_pass http://appflowy_cloud;
+                    
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection $connection_upgrade;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    
+                    proxy_read_timeout 86400s;
+                    proxy_send_timeout 86400s;
+                }
+
+                # API endpoints
+                location /api {
+                    # CORS handling
+                    if ($request_method = 'OPTIONS') {
+                        add_header 'Access-Control-Allow-Origin' $cors_origin always;
+                        add_header 'Access-Control-Allow-Credentials' 'true' always;
+                        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, PATCH, OPTIONS' always;
+                        add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Accept, Client-Version, Device-Id' always;
+                        add_header 'Access-Control-Max-Age' 3600 always;
+  
+                        return 204;
+                    }
+
+                    add_header 'Access-Control-Allow-Origin' $cors_origin always;
+                    add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, PATCH, OPTIONS' always;
+                    add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Accept, Client-Version, Device-Id' always;
+
+                    proxy_pass http://appflowy_cloud;
+                    proxy_set_header X-Request-Id $request_id;
+                    proxy_set_header Host $http_host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_set_header Authorization $http_authorization;
+                    proxy_set_header Cookie $http_cookie;
+
+                    # Special handling for large uploads
+                    location ~* ^/api/workspace/([a-zA-Z0-9_-]+)/publish$ {
+                        proxy_pass http://appflowy_cloud;
+                        proxy_request_buffering off;
+                        client_max_body_size 256M;
+                        
+                        proxy_set_header X-Request-Id $request_id;
+                        proxy_set_header Host $http_host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                        proxy_set_header Authorization $http_authorization;
+                        proxy_set_header Cookie $http_cookie;
+
+                        add_header 'Access-Control-Allow-Origin' $cors_origin always;
+                        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, PATCH, OPTIONS' always;
+                        add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Accept, Client-Version, Device-Id' always;
+                    }
+
+                    # Chat API with streaming
+                    location /api/chat {
+                        proxy_pass http://appflowy_cloud;
+                        
+                        proxy_http_version 1.1;
+                        proxy_set_header Connection "";
+                        proxy_buffering off;
+                        proxy_cache off;
+                        chunked_transfer_encoding on;
+                        
+                        proxy_read_timeout 600s;
+                        proxy_connect_timeout 600s;
+                        proxy_send_timeout 600s;
+                        
+                        proxy_set_header Host $http_host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                        proxy_set_header Authorization $http_authorization;
+                        proxy_set_header Cookie $http_cookie;
+                    }
+
+                    # Import API
+                    location /api/import {
+                        proxy_pass http://appflowy_cloud;
+                        
+                        proxy_set_header X-Request-Id $request_id;
+                        proxy_set_header Host $http_host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                        proxy_set_header Authorization $http_authorization;
+                        proxy_set_header Cookie $http_cookie;
+                        
+                        proxy_read_timeout 600s;
+                        proxy_connect_timeout 600s;
+                        proxy_send_timeout 600s;
+                        
+                        proxy_request_buffering off;
+                        proxy_buffering off;
+                        proxy_cache off;
+                        client_max_body_size 2G;
+
+                        add_header 'Access-Control-Allow-Origin' $cors_origin always;
+                        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, PATCH, OPTIONS' always;
+                        add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Accept, Device-Id' always;
+                    }
+                }
+
+                location = /minio {
+                    return 301 $scheme://$http_host/minio/;
+                }
+
+                # MinIO Console (Web UI)
+                location /minio/ {
+                    proxy_pass http://minio_console/;
+                    
+                    proxy_set_header Host $http_host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_set_header X-NginX-Proxy true;
+                    proxy_set_header Authorization $http_authorization;
+                    proxy_set_header Cookie $http_cookie;
+                    
+                    # Essential headers for MinIO console
+                    proxy_set_header X-Forwarded-Host $http_host;
+                    proxy_set_header X-Forwarded-Server $host;
+                    
+                    # WebSocket support
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection $connection_upgrade;
+                    
+                    # Timeouts
+                    proxy_connect_timeout 300s;
+                    proxy_send_timeout 300s;
+                    proxy_read_timeout 300s;
+                    
+                    # Disable buffering for real-time responses
+                    proxy_buffering off;
+                    proxy_cache off;
+                    
+                    # Handle CORS
+                    add_header Access-Control-Allow-Origin $cors_origin always;
+                }
+
+
+
+
+                # MinIO API (for presigned URLs and console communication)
+                location /minio-api/ {
+                    proxy_pass http://minio_api/;
+                    
+                    # Remove the /minio-api prefix when forwarding to MinIO
+                    rewrite ^/minio-api/(.*) /$1 break;
+                    
+                    proxy_set_header Host $http_host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_set_header Authorization $http_authorization;
+                    proxy_set_header Cookie $http_cookie;
+                    
+                    proxy_connect_timeout 300s;
+                    proxy_send_timeout 300s;
+                    proxy_read_timeout 300s;
+                    proxy_http_version 1.1;
+                    proxy_set_header Connection "";
+                    chunked_transfer_encoding off;
+                    
+                    # Add CORS headers for API access
+                    add_header Access-Control-Allow-Origin $cors_origin always;
+                    add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS' always;
+                    add_header Access-Control-Allow-Headers 'Content-Type, Authorization, Accept' always;
+                }
+
+                # Admin Frontend
+                # Optional Module, comment this section if you did not deploy admin_frontend in docker-compose.yml
+                location /console {
+                    proxy_pass http://admin_frontend;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                
+                    proxy_set_header X-Scheme $scheme;
+                    proxy_set_header Host $host;
+                }
+
+                # PgAdmin
+                location /pgadmin/ {
+                    proxy_pass http://pgadmin/pgadmin/;
+                    
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_set_header X-Script-Name /pgadmin;
+                    
+                    # Important for pgAdmin
+                    proxy_http_version 1.1;
+                    proxy_set_header Connection "";
+                    
+                    proxy_redirect off;
+                    proxy_buffering off;
+                }
+
+                location = /pgadmin {
+                    proxy_pass http://pgadmin/pgadmin/;
+                    
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_set_header X-Script-Name /pgadmin;
+                    
+                    # Important for pgAdmin
+                    proxy_http_version 1.1;
+                    proxy_set_header Connection "";
+                    
+                    proxy_redirect off;
+                    proxy_buffering off;
+                }
+
+
+
+                # Main AppFlowy Web application
+                location / {
+                    proxy_pass http://appflowy_web;
+                    
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    
+                    # Enable keepalive
+                    proxy_http_version 1.1;
+                    proxy_set_header Connection "";
+                }
+            }
+        }

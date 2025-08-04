@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appflowy-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: appflowy-web
+  template:
+    metadata:
+      labels:
+        app: appflowy-web
+    spec:
+      containers:
+        - name: appflowy-web
+          image: appflowyinc/appflowy_web:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          env:
+            - name: RUST_LOG
+              value: info
+            - name: APPFLOWY_WEB_URL
+              value: "http://appflowy-web:8080"
+            - name: APPFLOWY_CLOUD_URL
+              value: "http://appflowy-cloud:8000"
+            - name: APPFLOWY_GOTRUE_URL
+              value: "http://gotrue:9999"

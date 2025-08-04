@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appflowy-cloud
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: appflowy-cloud
+  template:
+    metadata:
+      labels:
+        app: appflowy-cloud
+    spec:
+      containers:
+        - name: appflowy-cloud
+          image: appflowyinc/appflowy_cloud:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          env:
+            # Non-sensitive environment variables
+            - name: RUST_LOG
+              value: info
+            - name: APPFLOWY_ENVIRONMENT
+              value: production
+            - name: APPFLOWY_GOTRUE_JWT_EXP
+              value: "7200"
+            - name: APPFLOWY_S3_CREATE_BUCKET
+              value: "true"
+            - name: APPFLOWY_S3_USE_MINIO
+              value: "true"
+            - name: APPFLOWY_S3_BUCKET
+              value: "appflowy"
+            - name: APPFLOWY_S3_REGION
+              value: "us-east-1"
+            - name: APPFLOWY_S3_PRESIGNED_URL_ENDPOINT
+              value: ""
+            - name: APPFLOWY_ACCESS_CONTROL
+              value: "true"
+            - name: APPFLOWY_DATABASE_MAX_CONNECTIONS
+              value: "40"
+            
+            # Sensitive data from secrets
+            - name: APPFLOWY_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_DATABASE_URL
+            - name: APPFLOWY_REDIS_URI
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_REDIS_URI
+            - name: APPFLOWY_GOTRUE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_GOTRUE_JWT_SECRET
+            - name: APPFLOWY_GOTRUE_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_GOTRUE_BASE_URL
+            - name: APPFLOWY_S3_MINIO_URL
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_S3_MINIO_URL
+            - name: APPFLOWY_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_S3_ACCESS_KEY
+            - name: APPFLOWY_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_S3_SECRET_KEY
+            - name: APPFLOWY_MAILER_SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_MAILER_SMTP_HOST
+            - name: APPFLOWY_MAILER_SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_MAILER_SMTP_PORT
+            - name: APPFLOWY_MAILER_SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_MAILER_SMTP_USERNAME
+            - name: APPFLOWY_MAILER_SMTP_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_MAILER_SMTP_EMAIL
+            - name: APPFLOWY_MAILER_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_MAILER_SMTP_PASSWORD
+            - name: APPFLOWY_MAILER_SMTP_TLS_KIND
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_MAILER_SMTP_TLS_KIND
+            - name: AI_SERVER_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: AI_SERVER_HOST
+            - name: AI_SERVER_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: AI_SERVER_PORT
+            - name: AI_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: AI_OPENAI_API_KEY
+            - name: APPFLOWY_WEB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy-cloud-secret
+                  key: APPFLOWY_WEB_URL

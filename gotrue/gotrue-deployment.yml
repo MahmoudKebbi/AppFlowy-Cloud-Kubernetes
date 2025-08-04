@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gotrue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gotrue
+  template:
+    metadata:
+      labels:
+        app: gotrue
+    spec:
+      containers:
+        - name: gotrue
+          image: appflowyinc/gotrue:latest
+          ports:
+            - containerPort: 9999
+          env:
+            # Construct the database URL using the secret
+            - name: GOTRUE_JWT_ADMIN_GROUP_NAME
+              value: "supabase_admin"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: gotrue-secret
+                  key: DATABASE_URL
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gotrue-secret
+                  key: POSTGRES_PASSWORD
+            - name: GOTRUE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gotrue-secret
+                  key: GOTRUE_JWT_SECRET
+            - name: GOTRUE_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: gotrue-secret
+                  key: GOTRUE_ADMIN_EMAIL
+            - name: GOTRUE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gotrue-secret
+                  key: GOTRUE_ADMIN_PASSWORD
+            # Static configuration
+            - name: PORT
+              value: "9999"
+            - name: GOTRUE_DB_DRIVER
+              value: "postgres"
+            - name: API_EXTERNAL_URL
+              value: "http://gotrue:9999/gotrue" # This should be your external URL if using an Ingress
+            - name: GOTRUE_SITE_URL
+              value: "appflowy-flutter://"
+            # Auto-confirm users to avoid needing an SMTP server for local setup
+            - name: GOTRUE_MAILER_AUTOCONFIRM
+              value: "true"
+            - name: GOTRUE_DISABLE_SIGNUP
+              value: "false"
+          readinessProbe: 
+            httpGet:
+              path: /health
+              port: 9999
+            initialDelaySeconds: 10
+            periodSeconds: 5
